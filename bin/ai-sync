@@ -22,10 +22,10 @@
 #     ai-sync --raw-cc     Claude Code -> opencode, overwrite
 set -u
 
-AISYNC="${AISYNC_HOME:-$HOME/.local/share/agent-session-bridge}/aisync.py"
-OC2CC="${AISYNC_HOME:-$HOME/.local/share/agent-session-bridge}/oc2cc.py"
-CC2OC="${AISYNC_HOME:-$HOME/.local/share/agent-session-bridge}/cc2oc.py"
-LOCK="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-session-bridge.lock"
+AISYNC="${AISYNC_HOME:-$HOME/.local/share/opencode-claude-code-sync}/aisync.py"
+OC2CC="${AISYNC_HOME:-$HOME/.local/share/opencode-claude-code-sync}/oc2cc.py"
+CC2OC="${AISYNC_HOME:-$HOME/.local/share/opencode-claude-code-sync}/cc2oc.py"
+LOCK="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/opencode-claude-code-sync.lock"
 LOG="$HOME/.local/share/opencode/ai-sync.log"
 
 quiet=0

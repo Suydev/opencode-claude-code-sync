@@ -1,4 +1,4 @@
-# agent-session-bridge
+# opencode-claude-code-sync
 
 Two-way session sync between [opencode](https://opencode.ai) and
 [Claude Code](https://claude.com/claude-code), plus reverse-engineered
@@ -44,12 +44,12 @@ should happen: push one way, push the other, union both, or wait.
 Requires Python 3.8+, `bash`, and both tools already installed.
 
 ```sh
-git clone https://github.com/Suydev/agent-session-bridge.git
-cd agent-session-bridge
+git clone https://github.com/Suydev/opencode-claude-code-sync.git
+cd opencode-claude-code-sync
 
 # The three Python modules must live together; they load each other by path.
-mkdir -p ~/.local/share/agent-session-bridge
-cp src/*.py ~/.local/share/agent-session-bridge/
+mkdir -p ~/.local/share/opencode-claude-code-sync
+cp src/*.py ~/.local/share/opencode-claude-code-sync/
 
 install -m755 bin/ai-sync ~/.local/bin/ai-sync
 ```
