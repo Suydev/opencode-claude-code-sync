@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# ai-sync -- keep opencode and Claude Code sessions mirrored, both directions.
+#
+#     ai-sync              sync, then open Claude Code's resume picker
+#     ai-sync --quiet      sync, print one summary line, no picker
+#     ai-sync --status     per-session state, and anything on hold
+#     ai-sync --dry-run    decide and report, change nothing
+#     ai-sync --one <id>   just this session (either side's id)
+#
+# The real work is in aisync.py, which decides per session which way it
+# should move -- forward, reverse, merge both sides, or wait -- instead of
+# overwriting whichever copy it looked at last. That distinction is the whole
+# point: an unconditional two-way copy silently destroys whichever side it
+# writes second.
+#
+# This wrapper exists for the things a script should not do to itself:
+# serialise concurrent runs, survive being killed mid-sync, and keep a log.
+#
+# Legacy one-way behaviour is still reachable, for when you want a plain
+# rebuild with no merge logic:
+#     ai-sync --raw-oc     opencode -> Claude Code, overwrite
+#     ai-sync --raw-cc     Claude Code -> opencode, overwrite
+set -u
+
+AISYNC="${AISYNC_HOME:-$HOME/.local/share/agent-session-bridge}/aisync.py"
+OC2CC="${AISYNC_HOME:-$HOME/.local/share/agent-session-bridge}/oc2cc.py"
+CC2OC="${AISYNC_HOME:-$HOME/.local/share/agent-session-bridge}/cc2oc.py"
+LOCK="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-session-bridge.lock"
+LOG="$HOME/.local/share/opencode/ai-sync.log"
+
+quiet=0
+open_picker=1
+mode=coordinated
+args=()
+one=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --quiet|-q)   quiet=1; open_picker=0 ;;
+    --status)     mode=status; open_picker=0 ;;
+    --dry-run)    args+=(--dry-run); open_picker=0 ;;
+    --one)        shift; one="${1:-}" ;;
+    # Accepted for the hooks, which know only one side's id. Both map to the
+    # same thing now: aisync resolves either id to the same pair.
+    --one-oc|--one-cc) shift; one="${1:-}"; quiet=1; open_picker=0 ;;
+    --no-open)    open_picker=0 ;;
+    --raw-oc)     mode=raw-oc; open_picker=0 ;;
+    --raw-cc)     mode=raw-cc; open_picker=0 ;;
+    -h|--help)    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)            echo "ai-sync: unknown option $1 (try --help)" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+[ -f "$AISYNC" ] || { echo "ai-sync: missing $AISYNC" >&2; exit 1; }
+[ -n "$one" ] && args+=(--one "$one")
+[ "$quiet" = 1 ] && args+=(--quiet)
+
+if [ "$mode" = status ]; then
+  exec python3 "$AISYNC" --status
+fi
+
+mkdir -p "$(dirname "$LOCK")" "$(dirname "$LOG")"
+
+# A lock left by a killed run must not wedge sync forever. Android's low-memory
+# killer takes processes here routinely, so this is the normal case, not an edge
+# case.
+if [ -d "$LOCK" ]; then
+  age=$(( $(date +%s) - $(stat -c%Y "$LOCK" 2>/dev/null || echo 0) ))
+  [ "$age" -ge 1800 ] && rmdir "$LOCK" 2>/dev/null
+fi
+if ! mkdir "$LOCK" 2>/dev/null; then
+  [ "$quiet" = 1 ] || echo "ai-sync: another sync is running, skipping"
+  exit 0
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
+
+out=$(mktemp)
+rc=0
+
+case "$mode" in
+  raw-oc) python3 "$OC2CC" --all 2>&1 | tee "$out"; rc=${PIPESTATUS[0]} ;;
+  raw-cc) python3 "$CC2OC" --all 2>&1 | tee "$out"; rc=${PIPESTATUS[0]} ;;
+  *)
+    if [ "$quiet" = 1 ]; then
+      python3 "$AISYNC" ${args+"${args[@]}"} >"$out" 2>&1 || rc=$?
+    else
+      python3 "$AISYNC" ${args+"${args[@]}"} 2>&1 | tee "$out"
+      rc=${PIPESTATUS[0]}
+    fi
+    ;;
+esac
+
+summary=$(grep -E '^aisync:' "$out" 2>/dev/null | tail -1)
+[ -n "$summary" ] || summary="aisync: (no summary)"
+printf '%s  %s  rc=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${summary#aisync: }" "$rc" >>"$LOG"
+[ "$quiet" = 1 ] && echo "$summary"
+rm -f "$out"
+
+if [ "$open_picker" = 1 ] && [ "$rc" = 0 ]; then
+  echo "opening Claude Code's resume picker"
+  exec claude --resume
+fi
+exit "$rc"

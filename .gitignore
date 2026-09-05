@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local state, never committed: ledger, logs, backups, exports.
+*.log
+*.jsonl
+*-ledger.json
+aisync-backups/
