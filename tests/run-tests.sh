@@ -137,7 +137,10 @@ for f in "$REPO_DIR"/install.sh "$REPO_DIR"/bin/ai-sync "$REPO_DIR"/hooks/*.sh; 
 done
 
 for f in "$REPO_DIR"/src/*.py; do
-  if python3 -m py_compile "$f" 2>"$TMPROOT/py.log"; then
+  # PYTHONPYCACHEPREFIX keeps the byte-compile out of the source tree, so this
+  # also works on a read-only checkout -- which is how CI mounts the repo into
+  # the Termux container, where the bind mount belongs to a different uid.
+  if PYTHONPYCACHEPREFIX="$TMPROOT/pycache" python3 -m py_compile "$f" 2>"$TMPROOT/py.log"; then
     ok "py_compile $(basename "$f")"
   else
     bad "py_compile $(basename "$f")" "$(head -3 "$TMPROOT/py.log" | tr '\n' ' ')"

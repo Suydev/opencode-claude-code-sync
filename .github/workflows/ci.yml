@@ -129,7 +129,12 @@ jobs:
               export HOME=/data/data/com.termux/files/home
               mkdir -p "$HOME"
               pkg update -y
-              pkg install -y python
+              # termux-exec provides libtermux-exec, the shebang rewriter.
+              # Without it a #!/usr/bin/env bash script cannot be exec"d at
+              # all, which takes out the installer'"'"'s own wrapper. This is
+              # the same prerequisite docs/claude-code-transcript-format.md
+              # §11 and hooks/install-termux-shell-shim.sh describe.
+              pkg install -y python termux-exec
               bash tests/run-tests.sh
             '
 
