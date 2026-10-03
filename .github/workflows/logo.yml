@@ -31,35 +31,37 @@ jobs:
       - name: Regenerate and compare
         run: |
           set -euo pipefail
-          cp -r assets /tmp/assets-before
           rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png
           for s in 256 128 64; do
             rsvg-convert -w "$s" -h "$s" assets/logo.svg -o "assets/logo-$s.png"
           done
+          rsvg-convert -w 1280 -h 640 assets/social-preview.svg -o assets/social-preview.png
           if ! git diff --quiet -- assets; then
-            echo "::error::Committed PNGs are stale. Regenerate with:"
+            echo "::error::Committed rasters are stale. Regenerate with:"
             echo "::error::  rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png"
             echo "::error::  for s in 256 128 64; do rsvg-convert -w \$s -h \$s assets/logo.svg -o assets/logo-\$s.png; done"
+            echo "::error::  rsvg-convert -w 1280 -h 640 assets/social-preview.svg -o assets/social-preview.png"
             git --no-pager diff --stat -- assets
             exit 1
           fi
-          echo "raster is in sync with the SVG"
+          echo "rasters are in sync with their SVGs"
 
-      - name: Sanity-check the raster
+      - name: Sanity-check the rasters
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq python3-pil
           python3 - <<'PY'
           from PIL import Image
-          expected = {"logo.png": 512, "logo-256.png": 256,
-                      "logo-128.png": 128, "logo-64.png": 64}
+          expected = {"logo.png": (512, 512), "logo-256.png": (256, 256),
+                      "logo-128.png": (128, 128), "logo-64.png": (64, 64),
+                      "social-preview.png": (1280, 640)}
           for name, size in expected.items():
               im = Image.open("assets/" + name)
-              assert im.size == (size, size), (name, im.size)
+              assert im.size == size, (name, im.size)
               assert im.mode in ("RGBA", "RGB"), (name, im.mode)
               # A blank or single-colour render means the SVG failed to parse
               # rather than that the artwork is wrong.
               colours = im.convert("RGBA").getcolors(maxcolors=1 << 20)
               assert colours and len(colours) > 8, (name, "too few colours")
-              print(f"{name}: {im.size[0]}px, {len(colours)} distinct colours")
+              print(f"{name}: {im.size[0]}x{im.size[1]}, {len(colours)} distinct colours")
           PY

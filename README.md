@@ -208,14 +208,28 @@ has to survive:
 There is no iOS runner in GitHub Actions, so the Termux rootfs job is the
 closest available proxy for that platform.
 
-[`logo.yml`](.github/workflows/logo.yml) keeps the committed PNGs honest: it
-re-rasterises `assets/logo.svg` and fails if the result differs, so the SVG and
-its rasters cannot drift apart.
+[`logo.yml`](.github/workflows/logo.yml) keeps the committed rasters honest: it
+re-rasterises every SVG in `assets/` and fails if the result differs, so the
+sources and the PNGs cannot drift apart.
 
 ```sh
 rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png
 for s in 256 128 64; do rsvg-convert -w "$s" -h "$s" assets/logo.svg -o "assets/logo-$s.png"; done
+rsvg-convert -w 1280 -h 640 assets/social-preview.svg -o assets/social-preview.png
 ```
+
+### Artwork
+
+| File | Use |
+| --- | --- |
+| `assets/logo.svg` | the mark, source of truth |
+| `assets/logo.png` | 512px, README and high-DPI |
+| `assets/logo-256/128/64.png` | smaller sizes |
+| `assets/social-preview.png` | 1280×640 card for the repo's social preview |
+
+GitHub does not expose the avatar or social-preview fields through its API, so
+`assets/social-preview.png` has to be uploaded by hand: **Settings → General →
+Social preview**. Likewise a profile avatar is a browser upload, not a CLI one.
 
 ## How it decides
 

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="t d">
+  <title id="t">opencode to Claude Code session sync</title>
+  <desc id="d">Social preview card: the sync loop mark beside the project name and a one-line description.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#191C22"/>
+      <stop offset="1" stop-color="#08090C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.26" cy="0.5" r="0.55">
+      <stop offset="0" stop-color="#D97757" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#D97757" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="claude" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#EBB491"/>
+      <stop offset="1" stop-color="#D97757"/>
+    </linearGradient>
+    <linearGradient id="opencode" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0" stop-color="#A3B5C7"/>
+      <stop offset="1" stop-color="#5C6B7A"/>
+    </linearGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F2F4F7"/>
+      <stop offset="1" stop-color="#C8D2DD"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+  <rect x="0" y="0" width="1280" height="3" fill="url(#claude)" opacity="0.85"/>
+  <rect x="0" y="637" width="1280" height="3" fill="url(#opencode)" opacity="0.85"/>
+
+  <!-- the mark, redrawn at 256 rather than embedded, so it scales cleanly -->
+  <g transform="translate(112 192) scale(0.5)">
+    <rect x="0" y="0" width="512" height="512" rx="112" fill="#0A0C0F"/>
+    <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
+    <path d="M 137.8 235.2 A 120 120 0 0 1 374.2 235.2" fill="none" stroke="url(#claude)" stroke-width="28" stroke-linecap="round"/>
+    <path d="M 374.2 276.8 A 120 120 0 0 1 137.8 276.8" fill="none" stroke="url(#opencode)" stroke-width="28" stroke-linecap="round"/>
+    <path d="M 380.5 281.6 L 393.9 236.5 L 352.5 243.9 Z" fill="#D97757"/>
+    <path d="M 131.5 230.4 L 159.5 268.1 L 118.1 275.5 Z" fill="#5C6B7A"/>
+    <path d="M 243 256 L 269 256" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="222" cy="256" r="16" fill="#0A0C0F" stroke="#EBB491" stroke-width="9"/>
+    <circle cx="290" cy="256" r="16" fill="#0A0C0F" stroke="#A3B5C7" stroke-width="9"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="404" y="268" font-family="Liberation Sans, Helvetica, Arial, sans-serif"
+        font-size="66" font-weight="bold" fill="url(#title)" letter-spacing="-1.5">opencode</text>
+
+  <!--
+    The swap arrow is drawn rather than typed: U+2196 renders as a small glyph
+    in most sans fonts at this size and reads as a smudge beside a 52px wordmark.
+    Centred on the cap height of the line below it.
+  -->
+  <g stroke="#7C8B9B" stroke-width="4" stroke-linecap="round" fill="none">
+    <path d="M 408 336 L 452 336"/>
+    <path d="M 452 348 L 408 348"/>
+  </g>
+  <path d="M 460 336 L 446 328 L 446 344 Z" fill="#7C8B9B"/>
+  <path d="M 400 348 L 414 340 L 414 356 Z" fill="#7C8B9B"/>
+
+  <text x="492" y="352" font-family="Liberation Sans, Helvetica, Arial, sans-serif"
+        font-size="52" font-weight="bold" fill="#E8A87C">Claude Code</text>
+
+  <text x="404" y="418" font-family="Liberation Sans, Helvetica, Arial, sans-serif"
+        font-size="27" fill="#9AA7B4">Two-way session sync. Pick up the same conversation in either tool.</text>
+
+  <g font-family="Liberation Mono, monospace" font-size="20" fill="#6C7A88">
+    <text x="404" y="474">opencode &#183; Claude Code &#183; python + bash, no dependencies</text>
+  </g>
+</svg>
