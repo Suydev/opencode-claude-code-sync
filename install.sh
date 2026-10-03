@@ -14,7 +14,34 @@
 # installs and would make every opencode launch fail with exit 127.
 set -euo pipefail
 
-REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# Where is this script? Normally its own directory, which is where src/, bin/
+# and hooks/ live. But `curl ... | bash` -- the documented one-liner -- has no
+# file at all: BASH_SOURCE[0] is then "bash", or unset under `set -u`. Treat
+# "not a readable file" as standalone and let bootstrap() fetch the rest.
+SELF="${BASH_SOURCE[0]:-}"
+REPO_DIR=""
+if [ -n "$SELF" ] && [ -f "$SELF" ]; then
+  REPO_DIR="$(cd -- "$(dirname -- "$SELF")" && pwd -P)"
+fi
+
+usage() {
+  cat <<'USAGE'
+install.sh -- set up opencode <-> Claude Code session sync on this device.
+
+    ./install.sh              install (or re-install; safe to repeat)
+    ./install.sh --dry-run    print every change, touch nothing
+    ./install.sh --uninstall  remove what this script installed
+    ./install.sh --no-wrapper skip the opencode exit-sync wrapper
+
+Also works when piped, with no clone and no arguments:
+
+    curl -fsSL https://raw.githubusercontent.com/Suydev/opencode-claude-code-sync/main/install.sh | bash
+
+Nothing here is device-specific. Every path is derived from $HOME, $XDG_* and
+what is found on PATH, so the same script works on a workstation, a laptop, WSL
+or Termux.
+USAGE
+}
 
 HOME="${HOME:?HOME must be set}"
 XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -49,7 +76,7 @@ for arg in "$@"; do
     --dry-run)   MODE=dry-run ;;
     --uninstall) MODE=uninstall ;;
     --no-wrapper) WANT_WRAPPER=0 ;;
-    -h|--help)   sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)   usage; exit 0 ;;
     *) echo "install.sh: unknown option $arg" >&2; exit 2 ;;
   esac
 done
@@ -92,12 +119,20 @@ install_file() {  # install_file <mode> <src> <dst>
 REPO_URL="${AISYNC_REPO_URL:-https://github.com/Suydev/opencode-claude-code-sync}"
 REF="${AISYNC_REF:-main}"
 BOOTSTRAP_DIR="$AISYNC_HOME/bootstrap-$REF"
+# Owner-qualified path, taken from the repo URL so a fork keeps working:
+# https://github.com/Suydev/name -> Suydev/name. Stripping to the basename
+# instead would silently drop the owner and 404 on every fetch.
+REPO_SLUG="${REPO_URL#*github.com/}"
+REPO_SLUG="${REPO_SLUG%.git}"
+REPO_SLUG="${REPO_SLUG%/}"
 # Host + path, without the ref. Overridable so forks, mirrors, and the test
 # suite can point somewhere else; the ref is always appended.
-RAW_BASE="${AISYNC_RAW_BASE:-https://raw.githubusercontent.com/${REPO_URL##*/}}"
+RAW_BASE="${AISYNC_RAW_BASE:-https://raw.githubusercontent.com/$REPO_SLUG}"
 RAW="$RAW_BASE/$REF"
 
-have_tree() { [ -f "$REPO_DIR/bin/ai-sync" ] && [ -f "$REPO_DIR/src/aisync.py" ]; }
+have_tree() {
+  [ -n "$REPO_DIR" ] && [ -f "$REPO_DIR/bin/ai-sync" ] && [ -f "$REPO_DIR/src/aisync.py" ]
+}
 
 fetch_to() {
   # fetch_to <url> <dest>; fetch_to - <dest> reads the script's own stdin.
@@ -132,22 +167,22 @@ bootstrap() {
     say "reusing cached copy at $REPO_DIR"
     return 0
   fi
-  plan "fetch project files from $RAW/$REF"
+  plan "fetch project files from $RAW"
   if [ "$MODE" = dry-run ]; then
     REPO_DIR="$BOOTSTRAP_DIR"
     return 0
   fi
-  say "fetching project files from $RAW/$REF"
+  say "fetching project files from $RAW"
   local f
   for f in src/aisync.py src/cc2oc.py src/oc2cc.py bin/ai-sync \
            hooks/claude-session-end.sh hooks/opencode-wrapper.sh; do
-    if [ -f "$REPO_DIR/$f" ]; then
+    if [ -n "$REPO_DIR" ] && [ -f "$REPO_DIR/$f" ]; then
       cp "$REPO_DIR/$f" "$BOOTSTRAP_DIR/$f"
       continue
     fi
     fetch_to "$RAW/$f" "$BOOTSTRAP_DIR/$f" || {
       say "install.sh: could not fetch $f" >&2
-      say "  try: git clone --depth 1 $REPO_URL && cd ${REPO_URL##*/} && ./install.sh" >&2
+      say "  try: git clone --depth 1 \"$REPO_URL\" && cd \"${REPO_URL##*/}\" && ./install.sh" >&2
       exit 1
     }
   done

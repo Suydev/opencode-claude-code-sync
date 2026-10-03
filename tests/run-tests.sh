@@ -49,6 +49,13 @@ assert_grep() {
 assert_nogrep() {
   if grep -qE "$2" "$3" 2>/dev/null; then bad "$1" "found /$2/ in $3"; else ok "$1"; fi
 }
+# contains <label> <haystack> <pattern> -- for captured output, no file needed
+contains() {
+  if printf '%s' "$2" | grep -qE "$3"; then ok "$1"; else bad "$1" "no /$3/ in: $(printf '%s' "$2" | head -3 | tr '\n' ' ')"; fi
+}
+lacks() {
+  if printf '%s' "$2" | grep -qE "$3"; then bad "$1" "found /$3/ in: $(printf '%s' "$2" | head -3 | tr '\n' ' ')"; else ok "$1"; fi
+}
 
 run() {
   if [ "$VERBOSE" = 1 ]; then printf '       $ %s\n' "$*"; fi
@@ -310,6 +317,49 @@ else
   kill "$http_pid" 2>/dev/null; wait "$http_pid" 2>/dev/null
   assert_grep "second standalone run reuses cache" "reusing cached copy" "$TMPROOT/fetch2.log"
 fi
+
+# ---------------------------------------------------------------------------
+head_ "piped invocation (curl | bash)"
+
+# The documented one-liner pipes this script into bash, where it is not a file.
+# BASH_SOURCE[0] is then "bash", so anything deriving the repo directory from it
+# dies under `set -u` -- which is how this was shipped broken until the published
+# URL was actually curled. Run from a directory with no src/ so the standalone
+# path is the one exercised.
+home="$(make_device piped)"
+# Port 1 is not listening, so the fetch cannot succeed. That is the point: it
+# proves the script got all the way into bootstrap() and failed for the honest
+# reason, rather than dying on line 17 before it started.
+piped="$(cd "$TMPROOT" && cat "$REPO_DIR/install.sh" | \
+  env -i HOME="$home" PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
+  AISYNC_RAW_BASE="http://127.0.0.1:1" bash 2>&1)"
+piped_rc=$?
+lacks   "piped run has no unbound-variable error" "$piped" "unbound variable"
+contains "piped run reaches the bootstrap fetch"    "$piped" "fetching project files"
+contains "piped run fails with a usable message"    "$piped" "could not fetch|git clone"
+assert_ne "piped run exit code is non-zero" "0" "$piped_rc"
+
+# The default raw URL must carry the owner. Getting this wrong 404s every fetch
+# while every local test still passes, because they all override the host.
+slug="$(cd "$TMPROOT" && cat "$REPO_DIR/install.sh" | \
+  env -i HOME="$home" PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
+  bash -s -- --dry-run 2>&1)"
+contains "default raw URL is owner-qualified" "$slug" "raw\.githubusercontent\.com/Suydev/opencode-claude-code-sync/main"
+lacks   "fetch log does not repeat the ref"    "$slug" "main/main"
+
+# --dry-run short-circuits before any fetch, so it must succeed outright.
+piped_dry="$(cd "$TMPROOT" && cat "$REPO_DIR/install.sh" | \
+  env -i HOME="$home" PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
+  bash -s -- --dry-run 2>&1)"
+dry_rc=$?
+assert_eq "piped --dry-run exits 0" "0" "$dry_rc"
+contains "piped --dry-run reports intended changes" "$piped_dry" "would install"
+lacks   "piped --dry-run writes nothing" "$piped_dry" "installed wrapper|exported OPENCODE_BIN"
+
+# Same again for --help, which used to sed its own $0 and so printed nothing.
+piped_help="$(cd "$TMPROOT" && cat "$REPO_DIR/install.sh" | \
+  env -i HOME="$home" PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" bash -s -- --help 2>&1)"
+contains "piped --help prints usage" "$piped_help" "install.sh -- set up"
 
 # ---------------------------------------------------------------------------
 head_ "cli surface"
