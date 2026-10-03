@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The installer is shell, so the matrix is the point: it is the only thing
+  # that catches a path assumption which happens to hold on the maintainer's
+  # machine. Windows matters most here, because Git Bash has no install(1) and
+  # no /usr/bin/opencode.
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+          - name: Linux aarch64
+            os: ubuntu-24.04-arm
+          - name: macOS arm64
+            os: macos-latest
+          - name: macOS x86_64
+            os: macos-15-intel
+          - name: Windows (Git Bash)
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Git Bash exposes `python`, not `python3`. Shim it so the suite can use
+      # one name everywhere.
+      - name: Shim python3 on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$HOME/bin"
+          printf '#!/bin/sh\nexec python "$@"\n' >"$HOME/bin/python3"
+          chmod +x "$HOME/bin/python3"
+          echo "$HOME/bin" >>"$GITHUB_PATH"
+
+      - name: Toolchain versions
+        shell: bash
+        run: |
+          bash --version | head -1
+          python3 --version
+          command -v curl || echo "note: no curl, the bootstrap test will skip"
+
+      - name: shellcheck
+        shell: bash
+        run: |
+          if ! command -v shellcheck >/dev/null; then
+            echo "shellcheck unavailable, skipping"
+            exit 0
+          fi
+          shellcheck -S warning install.sh bin/ai-sync hooks/*.sh tests/run-tests.sh
+
+      - name: Run test suite
+        shell: bash
+        run: bash tests/run-tests.sh
+
+  # A device with neither tool installed is the case the installer's fallbacks
+  # exist for, and it cannot be simulated on a runner that already has both.
+  bare:
+    name: No tools installed (degraded paths)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install without opencode or claude present
+        shell: bash
+        run: |
+          # A HOME with no .opencode and no .claude, and a PATH with neither
+          # binary. Must exit 0, warn, and skip the wrapper.
+          fake="$(mktemp -d)"
+          mkdir -p "$fake/bin"
+          out="$(env -i HOME="$fake" PATH="$fake/bin:/usr/bin:/bin" \
+                 bash install.sh 2>&1)" || {
+            echo "installer failed on a bare device:"; echo "$out"; exit 1;
+          }
+          echo "$out"
+          grep -q "no real opencode found" <<<"$out" || {
+            echo "expected a warning about the missing opencode binary"; exit 1; }
+          grep -q "skipping wrapper" <<<"$out" || {
+            echo "expected the wrapper to be skipped"; exit 1; }
+          # Which directory it lands in depends on PATH order -- the installer
+          # takes the first writable entry -- so look for it rather than
+          # assuming ~/.local/bin.
+          find "$fake" -type f -name ai-sync | grep -q . || {
+            echo "ai-sync should still install"; exit 1; }
+          find "$fake" -type f -name opencode | grep -q . && {
+            echo "wrapper must not be installed without a binary to wrap"; exit 1; }
+          echo "bare device handled correctly"
+
+  # Real aarch64 Android userspace. This is the closest CI can get to the
+  # Termux/iOS leg: same aarch64 Linux userland, same missing coreutils
+  # assumptions. Marked non-blocking because the base image needs network
+  # access for pkg and that is outside our control.
+  termux:
+    name: Termux userland (aarch64, best effort)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the suite inside a Termux rootfs
+        shell: bash
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            termux/termux-user:latest \
+            bash -lc '
+              set -e
+              pkg update -y && pkg install -y python git
+              export HOME=/data/data/com.termux/files/home
+              mkdir -p "$HOME"
+              bash tests/run-tests.sh
+            '
+
+  python:
+    name: Module sanity (no installer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and import
+        run: |
+          python3 -m py_compile src/*.py
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "src")
+          import aisync, oc2cc, cc2oc
+          # Store paths must be derived, never absolute literals.
+          for path in (aisync.STATE_DIR, oc2cc.DB, cc2oc.LEDGER):
+              assert path.startswith("/"), path
+              assert "/home/" not in path or path.count("/home/") == 1, path
+          print("modules import cleanly; store paths:", oc2cc.DB)
+          PY

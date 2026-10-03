@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title desc">
+  <title id="title">opencode &#8596; Claude Code session sync</title>
+  <desc id="desc">A rounded dark badge containing two arrows chasing each other around a ring, the upper arrow terracotta for Claude Code and the lower arrow slate for opencode, enclosing two linked dots that stand for a paired session.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#191C22"/>
+      <stop offset="1" stop-color="#0A0C0F"/>
+    </linearGradient>
+
+    <!-- Claude Code side: west end of the upper arc, through north, to east -->
+    <linearGradient id="claude" x1="137.8" y1="235.2" x2="374.2" y2="235.2" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EBB491"/>
+      <stop offset="1" stop-color="#D97757"/>
+    </linearGradient>
+
+    <!-- opencode side: east end of the lower arc, through south, to west -->
+    <linearGradient id="opencode" x1="374.2" y1="276.8" x2="137.8" y2="276.8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#A3B5C7"/>
+      <stop offset="1" stop-color="#5C6B7A"/>
+    </linearGradient>
+
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.10"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- badge -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#sheen)"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
+
+  <!--
+    Loop geometry, on a circle of r=120 about (256,256), math convention with
+    y up: p(t) = (256 + 120*cos t, 256 - 120*sin t).
+
+    Each arc is inset 10 degrees from its cardinal end, leaving a 20 degree
+    gap at east and west for an arrowhead to sit in without sitting on top of
+    the stroke it continues. Traversal is clockwise in screen terms, so the
+    east head points down and the west head points up.
+  -->
+
+  <!-- upper arc: t = 170 -> 10, over the top -->
+  <path d="M 137.8 235.2 A 120 120 0 0 1 374.2 235.2"
+        fill="none" stroke="url(#claude)" stroke-width="28" stroke-linecap="round"/>
+
+  <!-- lower arc: t = -10 -> -170, under the bottom -->
+  <path d="M 374.2 276.8 A 120 120 0 0 1 137.8 276.8"
+        fill="none" stroke="url(#opencode)" stroke-width="28" stroke-linecap="round"/>
+
+  <!-- east arrowhead, tangent (0.174, 0.985), tip leading -->
+  <path d="M 380.5 281.6 L 393.9 236.5 L 352.5 243.9 Z" fill="#D97757"/>
+
+  <!-- west arrowhead, tangent (-0.174, -0.985) -->
+  <path d="M 131.5 230.4 L 159.5 268.1 L 118.1 275.5 Z" fill="#5C6B7A"/>
+
+  <!-- the paired session: one dot per side, linked -->
+  <g>
+    <path d="M 243 256 L 269 256" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="222" cy="256" r="16" fill="#0A0C0F" stroke="#EBB491" stroke-width="9"/>
+    <circle cx="290" cy="256" r="16" fill="#0A0C0F" stroke="#A3B5C7" stroke-width="9"/>
+  </g>
+</svg>

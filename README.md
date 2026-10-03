@@ -1,8 +1,27 @@
-# opencode-claude-code-sync
+<p align="center">
+  <img src="assets/logo-256.png" alt="opencode to Claude Code session sync" width="128" height="128">
+</p>
 
-Two-way session sync between [opencode](https://opencode.ai) and
-[Claude Code](https://claude.com/claude-code), plus reverse-engineered
-documentation of both tools' on-disk session formats.
+<h1 align="center">opencode &#8596; Claude Code</h1>
+
+<p align="center">
+  Two-way session sync between <a href="https://opencode.ai">opencode</a> and
+  <a href="https://claude.com/claude-code">Claude Code</a>, plus reverse-engineered
+  documentation of both tools' on-disk session formats.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Suydev/opencode-claude-code-sync/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Suydev/opencode-claude-code-sync/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/Suydev/opencode-claude-code-sync/actions/workflows/logo.yml"><img alt="logo" src="https://github.com/Suydev/opencode-claude-code-sync/actions/workflows/logo.yml/badge.svg"></a>
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg">
+  <img alt="dependencies" src="https://img.shields.io/badge/dependencies-python%20%2B%20bash%20only-brightgreen.svg">
+</p>
+
+<p align="center">
+  <code>Linux</code> &middot; <code>macOS</code> &middot; <code>Windows (Git Bash)</code> &middot; <code>Termux / iOS (aarch64)</code>
+</p>
+
+---
 
 Work in one, resume it in the other. Sessions appear in both tools' pickers,
 keep their titles, and stay resumable — including tool calls, reasoning blocks,
@@ -41,20 +60,38 @@ should happen: push one way, push the other, union both, or wait.
 
 ## Install
 
-Requires Python 3.8+, `bash`, and both tools already installed.
+The installer is self-contained: run it and it fetches everything else it needs.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Suydev/opencode-claude-code-sync/main/install.sh | bash
+```
+
+That pipes a remote script straight into `bash`, which is not a thing you should
+usually do. Where `~/.claude/settings.json` is about to be edited, reading it
+first is the reasonable choice:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/Suydev/opencode-claude-code-sync/main/install.sh
+less install.sh && bash install.sh
+```
+
+Or from a clone, if you intend to work on it:
 
 ```sh
 git clone https://github.com/Suydev/opencode-claude-code-sync.git
 cd opencode-claude-code-sync
-
-# The three Python modules must live together; they load each other by path.
-mkdir -p ~/.local/share/opencode-claude-code-sync
-cp src/*.py ~/.local/share/opencode-claude-code-sync/
-
-install -m755 bin/ai-sync ~/.local/bin/ai-sync
+./install.sh
 ```
 
-Override the module location with `AISYNC_HOME` if you prefer somewhere else.
+| Flag | Effect |
+| --- | --- |
+| `./install.sh` | install, or re-install; safe to repeat |
+| `./install.sh --dry-run` | print every change, touch nothing |
+| `./install.sh --uninstall` | remove what the installer added (ledger and session data stay) |
+| `./install.sh --no-wrapper` | skip the opencode exit-sync wrapper |
+
+Requires Python 3.8+, `bash`, and both tools already installed. Nothing else is
+installed: no packages, no daemon, no network calls after the first fetch.
 
 Check it reads both stores before changing anything:
 
@@ -62,46 +99,47 @@ Check it reads both stores before changing anything:
 ai-sync --dry-run
 ```
 
-### Automatic sync (optional)
+### What it changes
 
-**Claude Code** has a working `SessionEnd` hook:
+| Path | Why |
+| --- | --- |
+| `$XDG_DATA_HOME/opencode-claude-code-sync/*.py` | the three converter modules |
+| first writable dir on `PATH`/`ai-sync` | the CLI |
+| first writable dir on `PATH`/`opencode` | exit-sync wrapper, only if none is there already |
+| `$CLAUDE_CONFIG_DIR/hooks-sync.sh` | Claude Code `SessionEnd` hook |
+| `$CLAUDE_CONFIG_DIR/settings.json` | merged, never overwritten: adds the hook and `cleanupPeriodDays` |
+| `~/.bashrc` | one marked block exporting `OPENCODE_BIN` |
 
-```sh
-install -m755 hooks/claude-session-end.sh ~/.claude/hooks-sync.sh
-```
+Nothing is hardcoded to a home directory or an install prefix. Paths come from
+`$HOME`, `$XDG_DATA_HOME`, `$XDG_CONFIG_HOME` and `$CLAUDE_CONFIG_DIR`, and the
+real opencode binary is *found* on `PATH` rather than assumed — upstream's
+wrapper defaults to `/usr/bin/opencode`, which does not exist on most installs
+and would make every launch fail with exit 127.
 
-```json
-{
-  "hooks": {
-    "SessionEnd": [
-      { "hooks": [ { "type": "command",
-                     "command": "/absolute/path/to/.claude/hooks-sync.sh",
-                     "timeout": 10 } ] }
-    ]
-  }
-}
-```
+Overrides, if you need them: `AISYNC_HOME`, `AISYNC_REPO_URL`, `AISYNC_REF`,
+`AISYNC_RAW_BASE`, `AI_SYNC_BIN`, `OPENCODE_DB`, `OPENCODE_STATE_DIR`,
+`XDG_DATA_HOME`, `CLAUDE_CONFIG_DIR`.
+
+### Automatic sync
+
+**Claude Code** has a working `SessionEnd` hook, registered for you.
 
 **opencode** does not — its plugin loader rejects local files in 1.17.9
-([details](docs/opencode-database-format.md#11-local-plugins-do-not-load-in-1179-on-this-build)).
-Wrap the binary instead:
+([details](docs/opencode-database-format.md#11-local-plugins-do-not-load-in-1179-on-this-build)) —
+so the installer wraps the binary instead. The wrapper runs the real opencode in
+the foreground, then syncs once it exits, which also catches crashes and OOM
+kills that an in-process hook would miss. Opt out per invocation:
 
 ```sh
-install -m755 hooks/opencode-wrapper.sh ~/.local/bin/opencode
-export OPENCODE_BIN=/usr/bin/opencode      # the real one
+OPENCODE_NO_SYNC=1 opencode
 ```
-
-This also catches crashes and OOM kills, which an in-process hook would miss.
 
 ### Retention: read this before you rely on sync
 
 Claude Code deletes transcripts older than `cleanupPeriodDays`, **default 30**.
 Imported sessions are backdated to the original conversation time, so a
 year-old import is *already past the cutoff* and can be swept on next launch.
-
-```json
-{ "cleanupPeriodDays": 3650 }
-```
+The installer sets `cleanupPeriodDays: 3650` for you.
 
 ---
 
@@ -142,6 +180,39 @@ hooks/install-termux-shell-shim.sh
 ```
 
 ---
+
+## Development
+
+```sh
+tests/run-tests.sh        # 54 assertions, hermetic, no network needed
+tests/run-tests.sh -v     # echo each command
+```
+
+Every test builds a throwaway `$HOME` with stub `opencode` and `claude`
+binaries, so the suite is safe to run on a machine that has both tools installed
+for real — and that isolation is the only reason a path assumption which happens
+to hold on your machine gets caught before it reaches someone else's.
+
+CI runs the suite on Linux x86_64 and aarch64, macOS arm64 and x86_64, and
+Windows under Git Bash, plus two legs that exist because of what this installer
+has to survive:
+
+- **`bare`** — a device with *neither* tool installed, asserting the installer
+  warns, skips the wrapper, and still installs the CLI.
+- **`termux`** — a real aarch64 Android rootfs. Non-blocking, because the base
+  image needs network access for `pkg`, which is outside this repo's control.
+
+There is no iOS runner in GitHub Actions, so the Termux rootfs job is the
+closest available proxy for that platform.
+
+[`logo.yml`](.github/workflows/logo.yml) keeps the committed PNGs honest: it
+re-rasterises `assets/logo.svg` and fails if the result differs, so the SVG and
+its rasters cannot drift apart.
+
+```sh
+rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png
+for s in 256 128 64; do rsvg-convert -w "$s" -h "$s" assets/logo.svg -o "assets/logo-$s.png"; done
+```
 
 ## How it decides
 
@@ -239,9 +310,11 @@ Some findings worth calling out, because they cost hours each:
 
 ## Compatibility
 
+### Session formats
+
 | | Tested |
 | --- | --- |
-| opencode | 1.17.9 |
+| opencode | 1.17.9 (also seen working on 1.18.34) |
 | Claude Code | 2.1.252 (native, `linux-arm64`) |
 | Platform | Termux / Android aarch64; the Python is platform-agnostic |
 | Python | 3.14 (3.8+ expected to work; not verified below 3.14) |
@@ -253,6 +326,24 @@ fidelity before giving up. `ai-sync --status` shows anything quarantined.
 
 If a future version breaks something, the format notes are the place to start —
 they record how each fact was established, so it can be re-checked.
+
+### Installer
+
+The converters are only exercised on the platforms above, but the *installer* is
+tested on every leg of the CI matrix, because it is the part that has to survive
+machines it was not written on:
+
+| | CI |
+| --- | --- |
+| Linux | x86_64, aarch64 |
+| macOS | arm64, x86_64 |
+| Windows | Git Bash (no `install(1)`, no `/usr/bin/opencode`) |
+| Android | aarch64 Termux rootfs, non-blocking |
+| iOS | not covered — no runner exists; Termux is the proxy |
+
+Windows is the leg that earns its place: Git Bash has neither `install(1)` nor
+the opencode path upstream's wrapper assumes, so both are exactly the failures
+that would otherwise only surface for someone else.
 
 ---
 

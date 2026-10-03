@@ -1,0 +1,65 @@
+name: logo
+
+on:
+  push:
+    branches: [main]
+    paths: ['assets/**']
+  pull_request:
+    paths: ['assets/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The PNGs are committed so the README and the GitHub social preview do not
+  # depend on a rasterizer being available at render time. That only stays true
+  # if they are regenerated when the SVG changes, so this fails the build on a
+  # stale raster instead of letting the two drift.
+  pngs-match-svg:
+    name: PNGs match logo.svg
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install librsvg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq librsvg2-bin
+
+      - name: Regenerate and compare
+        run: |
+          set -euo pipefail
+          cp -r assets /tmp/assets-before
+          rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png
+          for s in 256 128 64; do
+            rsvg-convert -w "$s" -h "$s" assets/logo.svg -o "assets/logo-$s.png"
+          done
+          if ! git diff --quiet -- assets; then
+            echo "::error::Committed PNGs are stale. Regenerate with:"
+            echo "::error::  rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png"
+            echo "::error::  for s in 256 128 64; do rsvg-convert -w \$s -h \$s assets/logo.svg -o assets/logo-\$s.png; done"
+            git --no-pager diff --stat -- assets
+            exit 1
+          fi
+          echo "raster is in sync with the SVG"
+
+      - name: Sanity-check the raster
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq python3-pil
+          python3 - <<'PY'
+          from PIL import Image
+          expected = {"logo.png": 512, "logo-256.png": 256,
+                      "logo-128.png": 128, "logo-64.png": 64}
+          for name, size in expected.items():
+              im = Image.open("assets/" + name)
+              assert im.size == (size, size), (name, im.size)
+              assert im.mode in ("RGBA", "RGB"), (name, im.mode)
+              # A blank or single-colour render means the SVG failed to parse
+              # rather than that the artwork is wrong.
+              colours = im.convert("RGBA").getcolors(maxcolors=1 << 20)
+              assert colours and len(colours) > 8, (name, "too few colours")
+              print(f"{name}: {im.size[0]}px, {len(colours)} distinct colours")
+          PY
