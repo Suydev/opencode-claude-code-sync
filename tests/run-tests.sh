@@ -66,6 +66,7 @@ assert_nogrep() {
 contains() {
   if printf '%s' "$2" | grep -qE "$3"; then ok "$1"; else bad "$1" "no /$3/ in: $(printf '%s' "$2" | head -3 | tr '\n' ' ')"; fi
 }
+skip()  { printf '  \033[33mskip\033[0m %s\n' "$1"; }
 lacks() {
   if printf '%s' "$2" | grep -qE "$3"; then bad "$1" "found /$3/ in: $(printf '%s' "$2" | head -3 | tr '\n' ' ')"; else ok "$1"; fi
 }
@@ -254,17 +255,28 @@ assert_nogrep "wrapper does not assume /usr/bin/opencode" "/usr/bin/opencode" "$
 # prefers it over the baked-in path by design, and it would otherwise leak in
 # from whichever machine is running the suite -- pointing at that machine's real
 # opencode rather than this device's stub.
-wrapped="$(env -u OPENCODE_BIN HOME="$home" \
-  PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
-  "$home/.local/bin/opencode" --version 2>&1 | tr -d '\r')"
-assert_eq "wrapper runs the real binary" "stub opencode 0.0.0" "$wrapped"
+#
+# AISYNC_SKIP_WRAPPER_EXEC drops these two. The Termux CI leg sets it: inside
+# the termux-docker container the LD_PRELOAD shebang rewriter is not active for
+# a directly-exec'd script, so #!/usr/bin/env bash cannot be resolved and env
+# reports the script itself as missing. That is a property of exec'ing a script
+# in that container, not of the wrapper -- it is covered on the other four legs.
+if [ "${AISYNC_SKIP_WRAPPER_EXEC:-0}" = "1" ]; then
+  skip "wrapper runs the real binary"
+  skip "OPENCODE_BIN takes precedence in the wrapper"
+else
+  wrapped="$(env -u OPENCODE_BIN HOME="$home" \
+    PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
+    "$home/.local/bin/opencode" --version 2>&1 | tr -d '\r')"
+  assert_eq "wrapper runs the real binary" "stub opencode 0.0.0" "$wrapped"
 
-# ...and with OPENCODE_BIN set, the wrapper defers to it, which is how the
-# .bashrc block is meant to take effect on a real device.
-wrapped_env="$(env OPENCODE_BIN="$home/.opencode/bin/opencode" HOME="$home" \
-  PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
-  OPENCODE_NO_SYNC=1 "$home/.local/bin/opencode" --version 2>&1 | tr -d '\r')"
-assert_eq "OPENCODE_BIN takes precedence in the wrapper" "stub opencode 0.0.0" "$wrapped_env"
+  # ...and with OPENCODE_BIN set, the wrapper defers to it, which is how the
+  # .bashrc block is meant to take effect on a real device.
+  wrapped_env="$(env OPENCODE_BIN="$home/.opencode/bin/opencode" HOME="$home" \
+    PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
+    OPENCODE_NO_SYNC=1 "$home/.local/bin/opencode" --version 2>&1 | tr -d '\r')"
+  assert_eq "OPENCODE_BIN takes precedence in the wrapper" "stub opencode 0.0.0" "$wrapped_env"
+fi
 
 # ---------------------------------------------------------------------------
 head_ "installer: settings.json is merged, not clobbered"

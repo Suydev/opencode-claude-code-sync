@@ -135,6 +135,13 @@ jobs:
               # the same prerequisite docs/claude-code-transcript-format.md
               # §11 and hooks/install-termux-shell-shim.sh describe.
               pkg install -y python termux-exec
+              # Two assertions exec the installed wrapper directly. Inside this
+              # container the shebang rewriter is not active for a directly
+              # exec'"'"'d script, so #!/usr/bin/env bash cannot resolve and env
+              # reports the script as missing. Container-specific, covered on
+              # the other four legs; this keeps the leg red on any *new* failure
+              # instead of permanently red on a known divergence.
+              export AISYNC_SKIP_WRAPPER_EXEC=1
               bash tests/run-tests.sh
             '
 
