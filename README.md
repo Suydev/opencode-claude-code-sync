@@ -199,8 +199,11 @@ has to survive:
 
 - **`bare`** — a device with *neither* tool installed, asserting the installer
   warns, skips the wrapper, and still installs the CLI.
-- **`termux`** — a real aarch64 Android rootfs. Non-blocking, because the base
-  image needs network access for `pkg`, which is outside this repo's control.
+- **`termux`** — a real aarch64 Android rootfs running the whole suite. Two
+  assertions are scoped out there via `AISYNC_SKIP_WRAPPER_EXEC`, because
+  exec'ing a `#!/usr/bin/env bash` script directly does not work inside the
+  container even with `termux-exec` installed; both pass on every other leg.
+  Still marked non-blocking, since it needs the network for `pkg`.
 
 There is no iOS runner in GitHub Actions, so the Termux rootfs job is the
 closest available proxy for that platform.
@@ -338,7 +341,7 @@ machines it was not written on:
 | Linux | x86_64, aarch64 |
 | macOS | arm64, x86_64 |
 | Windows | Git Bash (no `install(1)`, no `/usr/bin/opencode`) |
-| Android | aarch64 Termux rootfs, non-blocking |
+| Android | aarch64 Termux rootfs, two assertions scoped out, non-blocking |
 | iOS | not covered — no runner exists; Termux is the proxy |
 
 Windows is the leg that earns its place: Git Bash has neither `install(1)` nor
