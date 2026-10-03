@@ -23,7 +23,20 @@ TMPROOT="$(mktemp -d 2>/dev/null || mktemp -d -t aisync)"
 trap 'rm -rf "$TMPROOT"' EXIT
 
 ok()   { PASS=$((PASS+1)); printf '  \033[32mok\033[0m   %s\n' "$1"; }
-bad()  { FAIL=$((FAIL+1)); printf '  \033[31mFAIL\033[0m %s\n' "$1"; [ -n "${2:-}" ] && printf '       %s\n' "$2"; }
+# Every installer invocation is teed to this log. Without it a CI failure
+# reports only "expected [0] got [1]", which says nothing about why -- and the
+# Windows leg spent two rounds failing for reasons unrelated to what the failing
+# assertion was actually checking.
+INSTALL_LOG=""
+bad() {
+  FAIL=$((FAIL+1))
+  printf '  \033[31mFAIL\033[0m %s\n' "$1"
+  [ -n "${2:-}" ] && printf '       %s\n' "$2"
+  if [ -n "$INSTALL_LOG" ] && [ -s "$INSTALL_LOG" ]; then
+    printf '       \033[2m--- installer output (tail) ---\033[0m\n'
+    tail -12 "$INSTALL_LOG" | sed 's/^/       /'
+  fi
+}
 head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 # assert_eq <label> <expected> <actual>
@@ -83,12 +96,14 @@ make_device() {
 # they still win detection.
 dev_run() {
   local home="$1"; shift
+  INSTALL_LOG="$TMPROOT/last-install.log"
   env -u CLAUDE_CONFIG_DIR -u XDG_DATA_HOME -u XDG_CONFIG_HOME \
       -u AISYNC_HOME -u OPENCODE_DB -u OPENCODE_STATE_DIR -u OPENCODE_BIN \
       HOME="$home" \
       PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
       AISYNC_REPO_URL="https://example.invalid/opencode-claude-code-sync" \
-      "$@"
+      "$@" 2>&1 | tee "$INSTALL_LOG"
+  return "${PIPESTATUS[0]}"
 }
 
 # Same isolation, but for scripts arriving on stdin, where there is no $0 to
@@ -227,9 +242,21 @@ assert_grep "wrapper points at the real binary" "$home/.opencode/bin/opencode" "
 assert_nogrep "wrapper does not assume /usr/bin/opencode" "/usr/bin/opencode" "$home/.local/bin/opencode"
 
 # The wrapper must shadow the stub only because it is earlier on PATH, and it
-# must still be able to run the binary it wraps.
-wrapped="$("$home/.local/bin/opencode" --version 2>&1 | tr -d '\r')"
+# must still run the binary it wraps. OPENCODE_BIN is unset because the wrapper
+# prefers it over the baked-in path by design, and it would otherwise leak in
+# from whichever machine is running the suite -- pointing at that machine's real
+# opencode rather than this device's stub.
+wrapped="$(env -u OPENCODE_BIN HOME="$home" \
+  PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
+  "$home/.local/bin/opencode" --version 2>&1 | tr -d '\r')"
 assert_eq "wrapper runs the real binary" "stub opencode 0.0.0" "$wrapped"
+
+# ...and with OPENCODE_BIN set, the wrapper defers to it, which is how the
+# .bashrc block is meant to take effect on a real device.
+wrapped_env="$(env OPENCODE_BIN="$home/.opencode/bin/opencode" HOME="$home" \
+  PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
+  OPENCODE_NO_SYNC=1 "$home/.local/bin/opencode" --version 2>&1 | tr -d '\r')"
+assert_eq "OPENCODE_BIN takes precedence in the wrapper" "stub opencode 0.0.0" "$wrapped_env"
 
 # ---------------------------------------------------------------------------
 head_ "installer: settings.json is merged, not clobbered"
