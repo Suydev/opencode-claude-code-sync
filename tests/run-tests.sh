@@ -73,20 +73,32 @@ make_device() {
   printf '%s' "$home"
 }
 
+# dev_run <home> <script> [args...] -- run installer in an isolated env.
+#
+# HOME, the repo URL and the config variables are overridden or unset, but PATH
+# is *prepended* to rather than replaced. Replacing it looked hermetic and was
+# fine on Linux and macOS, where python3 lives in /usr/bin, but Windows only has
+# a python3 shim in the runner's ~/bin -- so overriding PATH made python3 vanish
+# and every installer run exited 1. The device's stub binaries come first, so
+# they still win detection.
 dev_run() {
-  # dev_run <home> <script> [args...] -- run installer in a hermetic env.
-  #
-  # Overrides HOME, PATH and the repo URL rather than using `env -i`. A scrubbed
-  # environment is tidier in principle but breaks on Windows: Python cannot
-  # start without SYSTEMROOT, so `env -i` made every installer invocation exit
-  # 1 there for a reason that had nothing to do with the installer. The
-  # variables that could leak a real config in are unset explicitly instead.
   local home="$1"; shift
   env -u CLAUDE_CONFIG_DIR -u XDG_DATA_HOME -u XDG_CONFIG_HOME \
       -u AISYNC_HOME -u OPENCODE_DB -u OPENCODE_STATE_DIR -u OPENCODE_BIN \
       HOME="$home" \
-      PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
+      PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
       AISYNC_REPO_URL="https://example.invalid/opencode-claude-code-sync" \
+      "$@"
+}
+
+# Same isolation, but for scripts arriving on stdin, where there is no $0 to
+# run. Usage: pipe_isolated <home> <args...>
+pipe_isolated() {
+  local home="$1"; shift
+  env -u CLAUDE_CONFIG_DIR -u XDG_DATA_HOME -u XDG_CONFIG_HOME \
+      -u AISYNC_HOME -u OPENCODE_DB -u OPENCODE_STATE_DIR -u OPENCODE_BIN \
+      HOME="$home" \
+      PATH="$home/.local/bin:$home/.opencode/bin:$PATH" \
       "$@"
 }
 
@@ -315,9 +327,7 @@ else
   standalone="$TMPROOT/standalone"
   mkdir -p "$standalone"
   cp "$REPO_DIR/install.sh" "$standalone/"          # ONLY install.sh
-  env -i HOME="$home" \
-      PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
-      AISYNC_RAW_BASE="http://127.0.0.1:$port" \
+  pipe_isolated "$home" AISYNC_RAW_BASE="http://127.0.0.1:$port" \
       bash "$standalone/install.sh" >"$TMPROOT/fetch.log" 2>&1
   rc=$?
   kill "$http_pid" 2>/dev/null; wait "$http_pid" 2>/dev/null
@@ -333,9 +343,7 @@ else
     curl -fsS "http://127.0.0.1:$port/main/install.sh" -o /dev/null 2>/dev/null && break
     sleep 0.3
   done
-  env -i HOME="$home" \
-      PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
-      AISYNC_RAW_BASE="http://127.0.0.1:$port" \
+  pipe_isolated "$home" AISYNC_RAW_BASE="http://127.0.0.1:$port" \
       bash "$standalone/install.sh" >"$TMPROOT/fetch2.log" 2>&1
   kill "$http_pid" 2>/dev/null; wait "$http_pid" 2>/dev/null
   assert_grep "second standalone run reuses cache" "reusing cached copy" "$TMPROOT/fetch2.log"
@@ -354,8 +362,7 @@ home="$(make_device piped)"
 # proves the script got all the way into bootstrap() and failed for the honest
 # reason, rather than dying on line 17 before it started.
 piped="$(cd "$TMPROOT" && cat "$REPO_DIR/install.sh" | \
-  env -i HOME="$home" PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
-  AISYNC_RAW_BASE="http://127.0.0.1:1" bash 2>&1)"
+  pipe_isolated "$home" AISYNC_RAW_BASE="http://127.0.0.1:1" bash 2>&1)"
 piped_rc=$?
 lacks   "piped run has no unbound-variable error" "$piped" "unbound variable"
 contains "piped run reaches the bootstrap fetch"    "$piped" "fetching project files"
@@ -365,15 +372,13 @@ assert_ne "piped run exit code is non-zero" "0" "$piped_rc"
 # The default raw URL must carry the owner. Getting this wrong 404s every fetch
 # while every local test still passes, because they all override the host.
 slug="$(cd "$TMPROOT" && cat "$REPO_DIR/install.sh" | \
-  env -i HOME="$home" PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
-  bash -s -- --dry-run 2>&1)"
+  pipe_isolated "$home" bash -s -- --dry-run 2>&1)"
 contains "default raw URL is owner-qualified" "$slug" "raw\.githubusercontent\.com/Suydev/opencode-claude-code-sync/main"
 lacks   "fetch log does not repeat the ref"    "$slug" "main/main"
 
 # --dry-run short-circuits before any fetch, so it must succeed outright.
 piped_dry="$(cd "$TMPROOT" && cat "$REPO_DIR/install.sh" | \
-  env -i HOME="$home" PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
-  bash -s -- --dry-run 2>&1)"
+  pipe_isolated "$home" bash -s -- --dry-run 2>&1)"
 dry_rc=$?
 assert_eq "piped --dry-run exits 0" "0" "$dry_rc"
 contains "piped --dry-run reports intended changes" "$piped_dry" "would install"
@@ -381,7 +386,7 @@ lacks   "piped --dry-run writes nothing" "$piped_dry" "installed wrapper|exporte
 
 # Same again for --help, which used to sed its own $0 and so printed nothing.
 piped_help="$(cd "$TMPROOT" && cat "$REPO_DIR/install.sh" | \
-  env -i HOME="$home" PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" bash -s -- --help 2>&1)"
+  pipe_isolated "$home" bash -s -- --help 2>&1)"
 contains "piped --help prints usage" "$piped_help" "install.sh -- set up"
 
 # ---------------------------------------------------------------------------
