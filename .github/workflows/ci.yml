@@ -104,27 +104,32 @@ jobs:
           echo "bare device handled correctly"
 
   # Real aarch64 Android userspace. This is the closest CI can get to the
-  # Termux/iOS leg: same aarch64 Linux userland, same missing coreutils
-  # assumptions. Marked non-blocking because the base image needs network
-  # access for pkg and that is outside our control.
+  # Termux/iOS leg: same aarch64 Linux userland, same bionic-not-glibc and
+  # missing-coreutils assumptions. Marked non-blocking because the image needs
+  # network access for pkg, which is outside our control.
+  #
+  # Note: the image is termux/termux-docker, not termux/termux-user, which does
+  # not exist on Docker Hub and fails the job with a confusing pull error.
   termux:
     name: Termux userland (aarch64, best effort)
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    timeout-minutes: 25
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Run the suite inside a Termux rootfs
         shell: bash
         run: |
+          set -euo pipefail
           docker run --rm --platform linux/arm64 \
             -v "$PWD:/work" -w /work \
-            termux/termux-user:latest \
+            termux/termux-docker:latest \
             bash -lc '
               set -e
-              pkg update -y && pkg install -y python git
               export HOME=/data/data/com.termux/files/home
               mkdir -p "$HOME"
+              pkg update -y
+              pkg install -y python
               bash tests/run-tests.sh
             '
 

@@ -96,6 +96,19 @@ run() {
 # `install(1)` is coreutils and is absent on Git Bash, which is how the Windows
 # leg of the test matrix runs this script. cp+chmod is equivalent here because
 # these are all plain file copies into a directory we control.
+# Print the installed module filenames, space separated. A glob loop rather
+# than `ls | xargs basename`, which mangles anything unusual and trips
+# Shellcheck's SC2011. (Capitalised deliberately: a comment starting with
+# lowercase "shellcheck" is parsed as a directive.)
+list_modules() {
+  local f out=""
+  for f in "$AISYNC_HOME"/*.py; do
+    [ -e "$f" ] || continue
+    out="$out ${f##*/}"
+  done
+  printf '%s' "${out# }"
+}
+
 install_file() {  # install_file <mode> <src> <dst>
   if command -v install >/dev/null 2>&1; then
     install -m"$1" "$2" "$3"
@@ -362,9 +375,9 @@ run mkdir -p "$AISYNC_HOME"
 plan "copy src/*.py -> $AISYNC_HOME"
 run cp "$REPO_DIR"/src/*.py "$AISYNC_HOME"/
 if [ "$MODE" = dry-run ]; then
-  say "modules present: $(ls "$AISYNC_HOME"/*.py 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+  say "modules present: $(list_modules)"
 else
-  say "installed modules: $(ls "$AISYNC_HOME"/*.py 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+  say "installed modules: $(list_modules)"
 fi
 
 plan "install ai-sync -> $AI_SYNC"

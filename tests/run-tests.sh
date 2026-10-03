@@ -65,7 +65,7 @@ run() {
 # A fake HOME with just enough of a device on it to be detected as one.
 # Echoes the path; caller passes it as HOME with a PATH containing the stubs.
 make_device() {
-  local name="$1" home="$TMPROOT/$1"
+  local home="$TMPROOT/$1"
   mkdir -p "$home/.local/bin" "$home/.opencode/bin" "$home/bin"
   printf '#!/bin/sh\necho "stub opencode 0.0.0"\n' >"$home/.opencode/bin/opencode"
   printf '#!/bin/sh\necho "stub claude 0.0.0"\n'  >"$home/.local/bin/claude"
@@ -75,12 +75,19 @@ make_device() {
 
 dev_run() {
   # dev_run <home> <script> [args...] -- run installer in a hermetic env.
+  #
+  # Overrides HOME, PATH and the repo URL rather than using `env -i`. A scrubbed
+  # environment is tidier in principle but breaks on Windows: Python cannot
+  # start without SYSTEMROOT, so `env -i` made every installer invocation exit
+  # 1 there for a reason that had nothing to do with the installer. The
+  # variables that could leak a real config in are unset explicitly instead.
   local home="$1"; shift
-  env -i \
-    HOME="$home" \
-    PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
-    AISYNC_REPO_URL="https://example.invalid/opencode-claude-code-sync" \
-    "$@"
+  env -u CLAUDE_CONFIG_DIR -u XDG_DATA_HOME -u XDG_CONFIG_HOME \
+      -u AISYNC_HOME -u OPENCODE_DB -u OPENCODE_STATE_DIR -u OPENCODE_BIN \
+      HOME="$home" \
+      PATH="$home/.local/bin:$home/.opencode/bin:/usr/bin:/bin" \
+      AISYNC_REPO_URL="https://example.invalid/opencode-claude-code-sync" \
+      "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -131,32 +138,48 @@ scan "no /home/<user> literal in scripts" '/home/[a-z]' \
 # against the file the installer actually writes.
 
 # Python must not hardcode an absolute store path either.
-py_paths="$(cd "$REPO_DIR" && python3 -c "
+#
+# The invariant is "derived from this device's home", which cannot be checked by
+# looking for a foreign home: on a box where HOME is /root, a correct derived
+# path and a hardcoded one are indistinguishable. So point home at a sentinel
+# and require every resolved store path to contain it. USERPROFILE is set too
+# because ntpath.expanduser consults that before HOME on Windows.
+sentinel="$TMPROOT/sentinel-home"
+mkdir -p "$sentinel"
+py_paths="$(cd "$REPO_DIR" && HOME="$sentinel" USERPROFILE="$sentinel" python3 -c "
 import sys; sys.path.insert(0, 'src')
 import aisync, oc2cc, cc2oc
-print(aisync.STATE_DIR); print(oc2cc.DB); print(cc2oc.LEDGER)
-" 2>/dev/null)"
-if [ -z "$py_paths" ]; then
-  bad "python modules import" "modules failed to import"
+for p in (aisync.STATE_DIR, oc2cc.DB, cc2oc.LEDGER):
+    print(p.replace(chr(92), '/'))
+" 2>&1)"
+
+if printf '%s' "$py_paths" | grep -qiE "Traceback|Error"; then
+  bad "python modules import" "$(printf '%s' "$py_paths" | head -3 | tr '\n' ' ')"
 else
   ok "python modules import"
-  # Every resolved store path must sit under this device's own HOME.
-  stray="$(printf '%s\n' "$py_paths" | grep -vE "^$(printf '%s' "$HOME" | sed 's/[.[\*^$]/\\&/g')(/|$)" || true)"
-  if [ -z "$stray" ]; then
-    ok "python store paths derive from \$HOME"
+  offhome="$(printf '%s\n' "$py_paths" | grep -vF "sentinel-home" || true)"
+  if [ -z "$offhome" ]; then
+    ok "python store paths derive from this device's home"
   else
-    bad "python store paths derive from \$HOME" "$(echo "$stray" | tr '\n' ' ')"
+    bad "python store paths derive from this device's home" "$(printf '%s' "$offhome" | tr '\n' ' ')"
   fi
+  tails="$(printf '%s\n' "$py_paths" | grep -cE "(opencode|opencode\.db|cc2oc-ledger\.json)$")"
+  assert_eq "all three store paths have the expected tail" "3" "$tails"
 fi
 
-# XDG_DATA_HOME must be honoured, and OPENCODE_DB must win over it.
+# XDG_DATA_HOME must be honoured, and OPENCODE_DB must win over it. Asserted by
+# substring because Windows resolves a leading-slash override against the Git
+# root (C:/Program Files/Git/xdgtest), which is correct behaviour, not a bug.
 xdg="$(cd "$REPO_DIR" && XDG_DATA_HOME=/xdgtest python3 -c "
-import sys; sys.path.insert(0,'src'); import aisync; print(aisync.STATE_DIR)" 2>/dev/null)"
-assert_eq "XDG_DATA_HOME honoured" "/xdgtest/opencode" "$xdg"
+import sys; sys.path.insert(0,'src'); import aisync
+print(aisync.STATE_DIR.replace(chr(92), '/'))" 2>/dev/null)"
+contains "XDG_DATA_HOME honoured" "$xdg" "xdgtest(/|\\\\)opencode$"
 
 dbovr="$(cd "$REPO_DIR" && XDG_DATA_HOME=/xdgtest OPENCODE_DB=/explicit/oc.db python3 -c "
-import sys; sys.path.insert(0,'src'); import oc2cc; print(oc2cc.DB)" 2>/dev/null)"
-assert_eq "OPENCODE_DB overrides XDG" "/explicit/oc.db" "$dbovr"
+import sys; sys.path.insert(0,'src'); import oc2cc
+print(oc2cc.DB.replace(chr(92), '/'))" 2>/dev/null)"
+contains "OPENCODE_DB overrides XDG" "$dbovr" "explicit(/|\\\\)oc\.db$"
+lacks    "OPENCODE_DB does not fall back to XDG" "$dbovr" "xdgtest"
 
 # ---------------------------------------------------------------------------
 head_ "installer: dry run changes nothing"
