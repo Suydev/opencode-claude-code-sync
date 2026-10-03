@@ -47,7 +47,9 @@ import uuid
 from datetime import datetime, timezone
 
 HOME = os.path.expanduser("~")
-DB = os.path.join(HOME, ".local/share/opencode/opencode.db")
+_DATA_HOME = os.environ.get("XDG_DATA_HOME") or os.path.join(HOME, ".local/share")
+STATE_DIR = os.environ.get("OPENCODE_STATE_DIR") or os.path.join(_DATA_HOME, "opencode")
+DB = os.environ.get("OPENCODE_DB") or os.path.join(STATE_DIR, "opencode.db")
 CLAUDE_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")
 PROJECTS = os.environ.get("OC2CC_OUT") or os.path.join(CLAUDE_DIR, "projects")
 TRASH = os.path.join(CLAUDE_DIR, ".trash-oc2cc")

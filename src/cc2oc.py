@@ -50,7 +50,9 @@ import time
 HOME = os.path.expanduser("~")
 CLAUDE_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")
 PROJECTS = os.path.join(CLAUDE_DIR, "projects")
-LEDGER = os.path.join(HOME, ".local/share/opencode/cc2oc-ledger.json")
+_DATA_HOME = os.environ.get("XDG_DATA_HOME") or os.path.join(HOME, ".local/share")
+STATE_DIR = os.environ.get("OPENCODE_STATE_DIR") or os.path.join(_DATA_HOME, "opencode")
+LEDGER = os.path.join(STATE_DIR, "cc2oc-ledger.json")
 
 # opencode id encoding
 EPOCH = 1786706395136          # 13 * 2**37
