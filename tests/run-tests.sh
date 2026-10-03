@@ -238,7 +238,12 @@ assert_file "oc2cc module installed"   "$home/.local/share/opencode-claude-code-
 assert_file "bashrc written"           "$home/.bashrc"
 assert_eq   "wrapper is executable"    "yes" "$([ -x "$home/.local/bin/opencode" ] && echo yes || echo no)"
 assert_grep "bashrc exports OPENCODE_BIN" "export OPENCODE_BIN=" "$home/.bashrc"
-assert_grep "wrapper points at the real binary" "$home/.opencode/bin/opencode" "$home/.local/bin/opencode"
+# Matched on the path suffix, not the whole path: under Git Bash `pwd -P`
+# resolves to the Windows spelling (/c/Users/...) while mktemp hands back the MSYS
+# one (/tmp/...), so both forms show up around here and neither is wrong. The
+# prefix is not what this assertion is about.
+assert_grep "wrapper points at the real binary" \
+            '[.]opencode[/\\]bin[/\\]opencode' "$home/.local/bin/opencode"
 assert_nogrep "wrapper does not assume /usr/bin/opencode" "/usr/bin/opencode" "$home/.local/bin/opencode"
 
 # The wrapper must shadow the stub only because it is earlier on PATH, and it
