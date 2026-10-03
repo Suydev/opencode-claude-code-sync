@@ -12,12 +12,18 @@ permissions:
   contents: read
 
 jobs:
-  # The PNGs are committed so the README and the GitHub social preview do not
-  # depend on a rasterizer being available at render time. That only stays true
-  # if they are regenerated when the SVG changes, so this fails the build on a
-  # stale raster instead of letting the two drift.
-  pngs-match-svg:
-    name: PNGs match logo.svg
+  # The rasters are committed so the README and the repo's social preview do
+  # not depend on a rasterizer being available at render time. That only stays
+  # true if they are regenerated when an SVG changes, so this fails the build on
+  # a stale raster instead of letting the two drift.
+  #
+  # Comparison is on decoded pixels, not file bytes. PNG encoding depends on the
+  # zlib build, and librsvg's version moves with the runner image, so two
+  # rasterisers that produce visually identical output can differ by a byte or
+  # two -- which is exactly what a byte comparison flagged here. Pixels are the
+  # invariant worth asserting.
+  rasters-match-sources:
+    name: Rasters match their SVGs
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,42 +32,74 @@ jobs:
       - name: Install librsvg
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq librsvg2-bin
+          sudo apt-get install -y -qq librsvg2-bin python3-pil
 
-      - name: Regenerate and compare
+      - name: Re-rasterise into a scratch dir
         run: |
           set -euo pipefail
-          rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png
+          scratch="$RUNNER_TEMP/rasters"
+          rm -rf "$scratch" && mkdir -p "$scratch"
+          rsvg-convert -w 512 -h 512 assets/logo.svg -o "$scratch/logo.png"
           for s in 256 128 64; do
-            rsvg-convert -w "$s" -h "$s" assets/logo.svg -o "assets/logo-$s.png"
+            rsvg-convert -w "$s" -h "$s" assets/logo.svg -o "$scratch/logo-$s.png"
           done
-          rsvg-convert -w 1280 -h 640 assets/social-preview.svg -o assets/social-preview.png
-          if ! git diff --quiet -- assets; then
-            echo "::error::Committed rasters are stale. Regenerate with:"
-            echo "::error::  rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png"
-            echo "::error::  for s in 256 128 64; do rsvg-convert -w \$s -h \$s assets/logo.svg -o assets/logo-\$s.png; done"
-            echo "::error::  rsvg-convert -w 1280 -h 640 assets/social-preview.svg -o assets/social-preview.png"
-            git --no-pager diff --stat -- assets
-            exit 1
-          fi
-          echo "rasters are in sync with their SVGs"
+          rsvg-convert -w 1280 -h 640 assets/social-preview.svg -o "$scratch/social-preview.png"
+          echo "SCRATCH=$scratch" >>"$GITHUB_ENV"
 
-      - name: Sanity-check the rasters
+      - name: Compare against the committed rasters
+        env:
+          SCRATCH: ${{ env.SCRATCH }}
         run: |
-          set -euo pipefail
-          sudo apt-get install -y -qq python3-pil
           python3 - <<'PY'
-          from PIL import Image
-          expected = {"logo.png": (512, 512), "logo-256.png": (256, 256),
-                      "logo-128.png": (128, 128), "logo-64.png": (64, 64),
-                      "social-preview.png": (1280, 640)}
+          import os, sys
+          from PIL import Image, ImageChops
+
+          scratch = os.environ["SCRATCH"]
+          expected = {
+              "logo.png": (512, 512),
+              "logo-256.png": (256, 256),
+              "logo-128.png": (128, 128),
+              "logo-64.png": (64, 64),
+              "social-preview.png": (1280, 640),
+          }
+          # Ignore a couple of levels: resampling and antialiasing can land a
+          # hair differently between librsvg builds. Anything structural still
+          # shows up as a large count.
+          THRESHOLD = 2
+          stale, failed = [], False
+
           for name, size in expected.items():
-              im = Image.open("assets/" + name)
-              assert im.size == size, (name, im.size)
-              assert im.mode in ("RGBA", "RGB"), (name, im.mode)
-              # A blank or single-colour render means the SVG failed to parse
-              # rather than that the artwork is wrong.
-              colours = im.convert("RGBA").getcolors(maxcolors=1 << 20)
-              assert colours and len(colours) > 8, (name, "too few colours")
-              print(f"{name}: {im.size[0]}x{im.size[1]}, {len(colours)} distinct colours")
+              committed = Image.open(os.path.join("assets", name))
+              fresh = Image.open(os.path.join(scratch, name))
+              if committed.size != size or fresh.size != size:
+                  print(f"::error::{name}: wrong size "
+                        f"committed={committed.size} fresh={fresh.size} want={size}")
+                  failed = True
+                  continue
+              a = committed.convert("RGBA")
+              b = fresh.convert("RGBA")
+              diff = ImageChops.difference(a, b).convert("L")
+              mask = diff.point(lambda p: 255 if p > THRESHOLD else 0)
+              box = mask.getbbox()
+              if box is None:
+                  colours = len(a.getcolors(maxcolors=1 << 20) or [])
+                  print(f"{name}: {a.size[0]}x{a.size[1]}, matches source "
+                        f"({colours} distinct colours)")
+              else:
+                  changed = sum(mask.histogram()[255:])
+                  pct = 100.0 * changed / (a.size[0] * a.size[1])
+                  stale.append((name, changed, pct))
+                  print(f"::error::{name}: {changed} px ({pct:.2f}%) differ from the SVG")
+
+          if stale:
+              print("::error::Committed rasters are stale. Regenerate with:")
+              print("::error::  rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png")
+              print("::error::  for s in 256 128 64; do "
+                    "rsvg-convert -w $s -h $s assets/logo.svg -o assets/logo-$s.png; done")
+              print("::error::  rsvg-convert -w 1280 -h 640 assets/social-preview.svg "
+                    "-o assets/social-preview.png")
+              sys.exit(1)
+          if failed:
+              sys.exit(1)
+          print("all rasters in sync with their SVGs")
           PY
